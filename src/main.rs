@@ -1,94 +1,123 @@
 use std::error::Error;
 use crossterm::{
-    event::{self, Event, KeyCode},
+    event::{self, Event, KeyCode, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
     prelude::*,
-    widgets::{Paragraph, Block, Borders, List, ListItem, ListState, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap, List, ListItem},
 };
+
 mod music_manipulation;
 use music_manipulation::*;
 
+mod app_navigation;
+use app_navigation::*;
+
 fn main() -> Result<(), Box<dyn Error>> {
-    // Setup terminal
     enable_raw_mode()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
     
     let music_dir = "/home/buzzkill/Music/";
     let music_files = get_music(music_dir);
-    let music_list: Vec<String> = convert_to_string(&music_files);
     
-    // Initialize list state for scrolling
-    let mut list_state = ListState::default()
-        .with_selected(Some(0)); // Optional: start with first item selected
+    let mut app = App::new(&music_files);
     
     let music_info = "Now Playing:\nBohemian Rhapsody\nby Queen\n\nAlbum: A Night at the Opera\nDuration: 5:55";
     
-    // Main loop
     loop {
-        // Draw the UI
-        terminal.draw(|frame| ui(frame, &music_list, &mut list_state, music_info))?;
+        terminal.draw(|frame| ui(frame, &mut app, music_info))?;
         
-        // Handle events
         if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => break,
-                KeyCode::Down => {
-                    // Move selection down
-                    let i = match list_state.selected() {
-                        Some(i) => (i + 1) % music_list.len(),
-                        None => 0,
-                    };
-                    list_state.select(Some(i));
-                }
-                KeyCode::Up => {
-                    // Move selection up
-                    let i = match list_state.selected() {
-                        Some(i) => (i + music_list.len() - 1) % music_list.len(),
-                        None => 0,
-                    };
-                    list_state.select(Some(i));
-                }
-                _ => {}
+            match app.mode {
+                AppMode::Normal => match (key.code, key.modifiers) {
+                    (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, KeyModifiers::NONE) => {
+                        app.move_down();
+                    }
+                    (KeyCode::Char('k'), KeyModifiers::NONE) | (KeyCode::Up, KeyModifiers::NONE) => {
+                        app.move_up();
+                    }
+                    (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                        let area_height = terminal.size()?.height as usize;
+                        app.half_page_down(area_height);
+                    }
+                    (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+                        let area_height = terminal.size()?.height as usize;
+                        app.half_page_up(area_height);
+                    }
+                    (KeyCode::Char('g'), KeyModifiers::NONE) => {
+                        app.list_state.select(Some(0));
+                    }
+                    (KeyCode::Char('G'), KeyModifiers::SHIFT) => {
+                        app.list_state.select(Some(app.filtered_list.len() - 1));
+                    }
+                    (KeyCode::Char('/'), KeyModifiers::NONE) => {
+                        app.mode = AppMode::Search;
+                        app.search_input.clear();
+                    }
+                    (KeyCode::Char('q'), KeyModifiers::NONE) | (KeyCode::Esc, KeyModifiers::NONE) => break,
+                    _ => {}
+                },
+                AppMode::Search => match key.code {
+                    KeyCode::Char(c) => {
+                        app.search_input.push(c);
+                        app.filter_list();
+                    }
+                    KeyCode::Backspace => {
+                        app.search_input.pop();
+                        app.filter_list();
+                    }
+                    KeyCode::Esc => {
+                        app.mode = AppMode::Normal;
+                        app.search_input.clear();
+                        app.filter_list();
+                    }
+                    KeyCode::Enter => {
+                        app.mode = AppMode::Normal;
+                    }
+                    _ => {}
+                },
             }
         }
     }
     
-    // Restore terminal
     disable_raw_mode()?;
     terminal.backend_mut().clear()?;
     terminal.backend_mut().flush()?;
     Ok(())
 }
 
-fn ui(frame: &mut Frame, music_list: &[String], list_state: &mut ListState, music_info: &str) {
-    // Create the main layout
+fn ui(frame: &mut Frame, app: &mut App, music_info: &str) {
     let vertical = Layout::vertical([
         Constraint::Length(1),   // Title bar
+        Constraint::Length(1),   // Search/Mode info
         Constraint::Min(0)       // Main content
     ]);
-    let [title_area, main_area] = vertical.areas(frame.area());
+    let [title_area, mode_area, main_area] = vertical.areas(frame.area());
     
-    // Create horizontal layout for music list and info
     let horizontal = Layout::horizontal([
         Constraint::Percentage(40),  // Music List
         Constraint::Percentage(60)   // Music Info
     ]);
     let [music_list_area, music_info_area] = horizontal.areas(main_area);
     
-    // Title widget
     let title = Paragraph::new("Rust Music Player")
         .block(Block::default().borders(Borders::ALL));
     frame.render_widget(title, title_area);
     
-    // Music List widget with scrolling
+    let mode_text = match app.mode {
+        AppMode::Normal => "NORMAL".to_string(),
+        AppMode::Search => format!("SEARCH: {}", app.search_input),
+    };
+    let mode_widget = Paragraph::new(mode_text)
+        .block(Block::default().borders(Borders::ALL));
+    frame.render_widget(mode_widget, mode_area);
+    
     let music_list_block = Block::default()
         .title("Music List")
         .borders(Borders::ALL);
     
-    // Convert music list to ListItems
-    let items: Vec<ListItem> = music_list
+    let items: Vec<ListItem> = app.filtered_list
         .iter()
         .map(|song| ListItem::new(song.as_str()))
         .collect();
@@ -97,10 +126,8 @@ fn ui(frame: &mut Frame, music_list: &[String], list_state: &mut ListState, musi
         .block(music_list_block)
         .highlight_style(Style::default().fg(Color::Yellow));
     
-    // Render the list with state for scrolling
-    frame.render_stateful_widget(list, music_list_area, list_state);
+    frame.render_stateful_widget(list, music_list_area, &mut app.list_state);
     
-    // Music Info widget
     let music_info_block = Block::default()
         .title("Music Info")
         .borders(Borders::ALL);
