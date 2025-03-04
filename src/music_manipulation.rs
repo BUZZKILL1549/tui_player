@@ -34,3 +34,4 @@ pub fn convert_to_string(paths: &Vec<PathBuf>) -> Vec<String> {
         })
         .collect()
 }
+

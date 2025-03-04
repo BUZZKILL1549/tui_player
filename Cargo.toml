@@ -6,4 +6,7 @@ edition = "2024"
 [dependencies]
 crossterm = "0.28.1"
 ratatui = "0.29.0"
+symphonia-codec-aac = "0.5.4"
+symphonia-core = "0.5.4"
+symphonia-format-isomp4 = "0.5.4"
 walkdir = "2.5.0"

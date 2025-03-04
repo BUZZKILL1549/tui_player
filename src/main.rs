@@ -11,8 +11,8 @@ use ratatui::{
 mod music_manipulation;
 use music_manipulation::*;
 
-mod app_navigation;
-use app_navigation::*;
+mod app;
+use app::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     enable_raw_mode()?;
