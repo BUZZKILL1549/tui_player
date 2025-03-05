@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::path::PathBuf;
 use crossterm::{
     event::{self, Event, KeyCode, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode},
@@ -22,11 +23,37 @@ fn main() -> Result<(), Box<dyn Error>> {
     let music_files = get_music(music_dir);
     
     let mut app = App::new(&music_files);
-    
-    let music_info = "Now Playing:\nBohemian Rhapsody\nby Queen\n\nAlbum: A Night at the Opera\nDuration: 5:55";
+
+    let music_files_full_path: Vec<PathBuf> = music_files;
     
     loop {
-        terminal.draw(|frame| ui(frame, &mut app, music_info))?;
+        let music_info = if let Some(selected_filename) = app.get_selected_song() {
+            let full_path = music_files_full_path
+                .iter()
+                .find(|path| 
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|s| s == selected_filename)
+                );
+
+            if let Some(path) = full_path {
+                match get_music_tags(path.to_str().unwrap_or("")) {
+                    Ok(tags) => {
+                        tags.iter()
+                            .map(|(key, value)| format!("{}: {}", key, value))
+                            .collect::<Vec<String>>()
+                            .join("\n")
+                    },
+                    Err(_) => "Unable to read tags".to_string()
+                }
+            } else {
+                "No song selected".to_string()
+            }
+        } else {
+            "No song selected".to_string()
+        };
+
+        terminal.draw(|frame| ui(frame, &mut app, &music_info))?;
         
         if let Event::Key(key) = event::read()? {
             match app.mode {

@@ -29,15 +29,6 @@ pub fn get_music(directory: &str) -> Vec<PathBuf> {
         .collect()
 }
 
-pub fn convert_to_string(paths: &Vec<PathBuf>) -> Vec<String> {
-    paths.iter()
-        .filter_map(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .map(|s| s.to_string())
-        })
-        .collect()
-}
 
 pub fn get_music_tags(path: &str) -> Result<Vec<(String, String)>, Box<dyn std::error::Error>> {
     let tagged_file = Probe::open(path)
