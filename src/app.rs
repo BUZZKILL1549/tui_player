@@ -12,6 +12,7 @@ pub struct App {
     pub list_state: ListState,
     pub mode: AppMode,
     pub search_input: String,
+    pub current_song_tags: String
 }
 
 impl App {
@@ -31,6 +32,7 @@ impl App {
             list_state: ListState::default().with_selected(Some(0)),
             mode: AppMode::Normal,
             search_input: String::new(),
+            current_song_tags: String::new(),
         }
     }
 

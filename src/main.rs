@@ -27,37 +27,38 @@ fn main() -> Result<(), Box<dyn Error>> {
     let music_files_full_path: Vec<PathBuf> = music_files;
     
     loop {
-        let music_info = if let Some(selected_filename) = app.get_selected_song() {
-            let full_path = music_files_full_path
-                .iter()
-                .find(|path| 
-                    path.file_name()
-                        .and_then(|name| name.to_str())
-                        .is_some_and(|s| s == selected_filename)
-                );
+        let current_song_tags = app.current_song_tags.clone();
 
-            if let Some(path) = full_path {
-                match get_music_tags(path.to_str().unwrap_or("")) {
-                    Ok(tags) => {
-                        tags.iter()
-                            .map(|(key, value)| format!("{}: {}", key, value))
-                            .collect::<Vec<String>>()
-                            .join("\n")
-                    },
-                    Err(_) => "Unable to read tags".to_string()
-                }
-            } else {
-                "No song selected".to_string()
-            }
-        } else {
-            "No song selected".to_string()
-        };
-
-        terminal.draw(|frame| ui(frame, &mut app, &music_info))?;
+        terminal.draw(|frame| ui(frame, &mut app, &current_song_tags))?;
         
         if let Event::Key(key) = event::read()? {
             match app.mode {
                 AppMode::Normal => match (key.code, key.modifiers) {
+                    (KeyCode::Enter, KeyModifiers::NONE) => {
+                        if let Some(selected_filename) = app.get_selected_song() {
+                            let full_path = music_files_full_path
+                                .iter()
+                                .find(|path|
+                                    path.file_name()
+                                        .and_then(|name| name.to_str())
+                                        .is_some_and(|s| s == selected_filename)
+                                );
+
+                            if let Some(path) = full_path {
+                                match get_music_tags(path.to_str().unwrap_or("")) {
+                                    Ok(tags) => {
+                                        app.current_song_tags = tags.iter()
+                                            .map(|(key, value)| format!("{}: {}", key, value))
+                                            .collect::<Vec<String>>()
+                                            .join("\n");
+                                    },
+                                    Err(_) => {
+                                        app.current_song_tags = "Unable to read tags".to_string();
+                                    }
+                                }
+                            }
+                        }
+                    }
                     (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, KeyModifiers::NONE) => {
                         app.move_down();
                     }
