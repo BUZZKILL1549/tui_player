@@ -116,31 +116,74 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn ui(frame: &mut Frame, app: &mut App, music_info: &str) {
-    let vertical = Layout::vertical([
-        Constraint::Length(1),   // Title bar
-        Constraint::Length(1),   // Search/Mode info
-        Constraint::Min(0)       // Main content
-    ]);
-    let [title_area, mode_area, main_area] = vertical.areas(frame.area());
-    
-    let horizontal = Layout::horizontal([
-        Constraint::Percentage(40),  // Music List
-        Constraint::Percentage(60)   // Music Info
-    ]);
-    let [music_list_area, music_info_area] = horizontal.areas(main_area);
-    
+    let areas: Vec<Rect>  = match app.mode {
+        AppMode::Search => {
+            Layout::vertical([
+                Constraint::Length(1),   // Title bar
+                Constraint::Length(1),   // Mode info
+                Constraint::Length(3),   // Search box (new)
+                Constraint::Min(0)       // Main content
+            ]).areas::<4>(frame.area()).to_vec()
+        },
+        AppMode::Normal => {
+            Layout::vertical([
+                Constraint::Length(1),   // Title bar
+                Constraint::Length(1),   // Mode info
+                Constraint::Min(0)       // Main content
+            ]).areas::<3>(frame.area()).to_vec()
+        }
+    };
+
     let title = Paragraph::new("Rust Music Player")
         .block(Block::default().borders(Borders::ALL));
-    frame.render_widget(title, title_area);
+    frame.render_widget(title, areas[0]);
     
     let mode_text = match app.mode {
         AppMode::Normal => "NORMAL".to_string(),
-        AppMode::Search => format!("SEARCH: {}", app.search_input),
+        AppMode::Search => "SEARCH MODE".to_string(),
     };
     let mode_widget = Paragraph::new(mode_text)
         .block(Block::default().borders(Borders::ALL));
-    frame.render_widget(mode_widget, mode_area);
+    frame.render_widget(mode_widget, areas[1]);
     
+    match app.mode {
+        AppMode::Search => {
+            let search_text = format!("Search: {}", app.search_input);
+            let search_box = Paragraph::new(search_text)
+                .block(Block::default()
+                    .title("Search")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Red)))  // yellow/red???
+                .style(Style::default().fg(Color::White).bg(Color::Black));
+            frame.render_widget(search_box, areas[2]);
+            
+            let horizontal = Layout::horizontal([
+                Constraint::Percentage(40),
+                Constraint::Percentage(60)
+            ]);
+            let [music_list_area, music_info_area] = horizontal.areas(areas[3]);
+            
+            render_music_content(frame, app, music_info, music_list_area, music_info_area);
+        },
+        AppMode::Normal => {
+            let horizontal = Layout::horizontal([
+                Constraint::Percentage(60),
+                Constraint::Percentage(40)
+            ]);
+            let [music_list_area, music_info_area] = horizontal.areas(areas[2]);
+            
+            render_music_content(frame, app, music_info, music_list_area, music_info_area);
+        }
+    }
+}
+
+fn render_music_content(
+    frame: &mut Frame,
+    app: &mut App,
+    music_info: &str,
+    music_list_area: Rect,
+    music_info_area: Rect
+) {
     let music_list_block = Block::default()
         .title("Music List")
         .borders(Borders::ALL);

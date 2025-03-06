@@ -55,9 +55,5 @@ pub fn get_music_tags(path: &str) -> Result<Vec<(String, String)>, Box<dyn std::
         tags.push(("Album".to_string(), album.to_string()));
     }
 
-    if let Some(genre) = tag.genre() {
-        tags.push(("Genre".to_string(), genre.to_string()));
-    }
-
     Ok(tags)
 } 
