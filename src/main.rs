@@ -158,8 +158,8 @@ fn ui(frame: &mut Frame, app: &mut App, music_info: &str) {
             frame.render_widget(search_box, areas[2]);
             
             let horizontal = Layout::horizontal([
-                Constraint::Percentage(40),
-                Constraint::Percentage(60)
+                Constraint::Percentage(60),
+                Constraint::Percentage(40)
             ]);
             let [music_list_area, music_info_area] = horizontal.areas(areas[3]);
             
