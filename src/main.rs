@@ -15,6 +15,9 @@ use music_manipulation::*;
 mod app;
 use app::*;
 
+mod playback;
+use playback::*;
+
 fn main() -> Result<(), Box<dyn Error>> {
     enable_raw_mode()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
@@ -23,6 +26,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let music_files = get_music(music_dir);
     
     let mut app = App::new(&music_files);
+    let mut player = AudioPlayer::new();
 
     let music_files_full_path: Vec<PathBuf> = music_files;
     
@@ -57,6 +61,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                                     }
                                 }
                             }
+                            let full_path_cloned = full_path.cloned();
+                            player.play_song(full_path_cloned);
                         }
                     }
                     (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, KeyModifiers::NONE) => {
@@ -112,6 +118,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     disable_raw_mode()?;
     terminal.backend_mut().clear()?;
     terminal.backend_mut().flush()?;
+    player.stop();
     Ok(())
 }
 
