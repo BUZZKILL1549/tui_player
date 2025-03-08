@@ -1,8 +1,10 @@
 use std::error::Error;
+use std::io;
 use std::path::PathBuf;
 use crossterm::{
+    execute,
     event::{self, Event, KeyCode, KeyModifiers},
-    terminal::{disable_raw_mode, enable_raw_mode},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{
     prelude::*,
@@ -20,8 +22,10 @@ use playback::*;
 
 fn main() -> Result<(), Box<dyn Error>> {
     enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
-    
+
     let music_dir = "/home/buzzkill/Music/";
     let music_files = get_music(music_dir);
     
@@ -116,68 +120,88 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     
     disable_raw_mode()?;
-    terminal.backend_mut().clear()?;
-    terminal.backend_mut().flush()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
     player.stop();
     Ok(())
 }
 
 fn ui(frame: &mut Frame, app: &mut App, music_info: &str) {
-    let areas: Vec<Rect>  = match app.mode {
+    // First create a vertical layout for the main sections
+    let main_layout = match app.mode {
         AppMode::Search => {
             Layout::vertical([
-                Constraint::Length(1),   // Title bar
-                Constraint::Length(1),   // Mode info
-                Constraint::Length(3),   // Search box (new)
+                Constraint::Length(3),   // Top bar (title + mode) with borders needs 3 rows
+                Constraint::Length(3),   // Search box
                 Constraint::Min(0)       // Main content
-            ]).areas::<4>(frame.area()).to_vec()
+            ]).areas::<3>(frame.area()).to_vec()
         },
         AppMode::Normal => {
             Layout::vertical([
-                Constraint::Length(1),   // Title bar
-                Constraint::Length(1),   // Mode info
+                Constraint::Length(3),   // Top bar (title + mode) with borders needs 3 rows
                 Constraint::Min(0)       // Main content
-            ]).areas::<3>(frame.area()).to_vec()
+            ]).areas::<2>(frame.area()).to_vec()
         }
     };
-
-    let title = Paragraph::new("Rust Music Player")
-        .block(Block::default().borders(Borders::ALL));
-    frame.render_widget(title, areas[0]);
     
+    // Create a block for the top bar
+    let top_bar_block = Block::default()
+        .borders(Borders::ALL);
+    
+    // Apply the block to get the inner area
+    let top_inner_area = top_bar_block.inner(main_layout[0]);
+    
+    // Render the block first
+    frame.render_widget(top_bar_block, main_layout[0]);
+    
+    // Then split the inner area horizontally for title and mode
+    let top_areas = Layout::horizontal([
+        Constraint::Percentage(70),  // Title takes 70% of width
+        Constraint::Percentage(30)   // Mode takes 30% of width
+    ]).areas::<2>(top_inner_area);
+    
+    // Render title on left side of top bar
+    let title = Paragraph::new("Music Player");
+    frame.render_widget(title, top_areas[0]);
+    
+    // Render mode on right side of top bar
     let mode_text = match app.mode {
         AppMode::Normal => "NORMAL".to_string(),
-        AppMode::Search => "SEARCH MODE".to_string(),
+        AppMode::Search => "SEARCH".to_string(),
     };
     let mode_widget = Paragraph::new(mode_text)
-        .block(Block::default().borders(Borders::ALL));
-    frame.render_widget(mode_widget, areas[1]);
+        .alignment(Alignment::Right); // Right-align the mode text
+    frame.render_widget(mode_widget, top_areas[1]);
     
+    // Rest of your UI code...
     match app.mode {
         AppMode::Search => {
+            // Adjust index to reference the correct area in main_layout
             let search_text = format!("Search: {}", app.search_input);
             let search_box = Paragraph::new(search_text)
                 .block(Block::default()
                     .title("Search")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Red)))  // yellow/red???
+                    .border_style(Style::default().fg(Color::Red)))
                 .style(Style::default().fg(Color::White).bg(Color::Black));
-            frame.render_widget(search_box, areas[2]);
+            frame.render_widget(search_box, main_layout[1]);
             
             let horizontal = Layout::horizontal([
                 Constraint::Percentage(60),
                 Constraint::Percentage(40)
             ]);
-            let [music_list_area, music_info_area] = horizontal.areas(areas[3]);
+            let [music_list_area, music_info_area] = horizontal.areas(main_layout[2]);
             
             render_music_content(frame, app, music_info, music_list_area, music_info_area);
         },
         AppMode::Normal => {
+            // Adjust index to reference the correct area in main_layout
             let horizontal = Layout::horizontal([
                 Constraint::Percentage(60),
                 Constraint::Percentage(40)
             ]);
-            let [music_list_area, music_info_area] = horizontal.areas(areas[2]);
+            let [music_list_area, music_info_area] = horizontal.areas(main_layout[1]);
             
             render_music_content(frame, app, music_info, music_list_area, music_info_area);
         }
