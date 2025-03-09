@@ -96,7 +96,32 @@ fn main() -> Result<(), Box<dyn Error>> {
                             app.mode = AppMode::Search;
                             app.search_input.clear();
                         }
+                        (KeyCode::Char('p'), KeyModifiers::NONE) => {
+                            app.mode = AppMode::Play;
+                        }
                         (KeyCode::Char('q'), KeyModifiers::NONE) | (KeyCode::Esc, KeyModifiers::NONE) => break,
+                        _ => {}
+                    },
+                    AppMode::Play => match (key.code, key.modifiers) {
+                        (KeyCode::Esc, KeyModifiers::NONE) => {
+                            app.mode = AppMode::Normal;
+                        },
+                        (KeyCode::Char(' '), KeyModifiers::NONE) => {
+                            player.toggle_pause();
+                        },
+                        (KeyCode::Right, KeyModifiers::NONE) => {
+                            player.seek_forward(5.0);
+                        },
+                        (KeyCode::Left, KeyModifiers::NONE) => {
+                            player.seek_backward(5.0);
+                        },
+                        (KeyCode::Char('+'), KeyModifiers::NONE) => {
+                            player.increase_volume(0.05);
+                        },
+                        (KeyCode::Char('-'), KeyModifiers::NONE) => {
+                            player.decrease_volume(0.05);
+                        },
+                        (KeyCode::Char('q'), KeyModifiers::NONE) => break,
                         _ => {}
                     },
                     AppMode::Search => match key.code {
@@ -131,7 +156,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
- fn ui(frame: &mut Frame, app: &mut App, music_info: &str, player: &AudioPlayer) {
+fn ui(frame: &mut Frame, app: &mut App, music_info: &str, player: &AudioPlayer) {
     let main_layout = match app.mode {
         AppMode::Search => {
             Layout::vertical([
@@ -140,6 +165,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Constraint::Min(0),      // Main content
                 Constraint::Length(3)    // Progress bar
             ]).areas::<4>(frame.area()).to_vec()
+        },
+        AppMode::Play => {
+            Layout::vertical([
+                Constraint::Length(3),   // Top bar
+                Constraint::Min(0),      // Playback controls and info
+                Constraint::Length(3)    // Progress bar
+            ]).areas::<3>(frame.area()).to_vec()
         },
         AppMode::Normal => {
             Layout::vertical([
@@ -168,12 +200,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mode_text = match app.mode {
         AppMode::Normal => "NORMAL".to_string(),
         AppMode::Search => "SEARCH".to_string(),
+        AppMode::Play => "PLAY".to_string(),
     };
     let mode_widget = Paragraph::new(mode_text)
         .alignment(Alignment::Right); 
     frame.render_widget(mode_widget, top_areas[1]);
     
-    let progress_index = if app.mode == AppMode::Search { 3 } else { 2 };
+    let progress_index = match app.mode {
+        AppMode::Search => 3,
+        _ => 2,
+    };
     
     if player.is_playing() {
         let progress_percentage = (player.get_progress() * 100.0) as u16;
@@ -218,6 +254,18 @@ fn main() -> Result<(), Box<dyn Error>> {
             
             render_music_content(frame, app, music_info, music_list_area, music_info_area);
         },
+        AppMode::Play => {
+            let play_controls = render_play_controls(player);
+            let controls_block = Block::default()
+                .title("Playback Controls")
+                .borders(Borders::ALL);
+            
+            let play_info_area = main_layout[1];
+            frame.render_widget(&controls_block, play_info_area);
+            
+            let inner_area = controls_block.inner(play_info_area);
+            frame.render_widget(play_controls, inner_area);
+        },
         AppMode::Normal => {
             let horizontal = Layout::horizontal([
                 Constraint::Percentage(60),
@@ -229,6 +277,29 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 }
+
+fn render_play_controls(player: &AudioPlayer) -> Paragraph<'static> {
+    let volume = player.get_volume();
+    let state = if player.is_paused() { "⏸ PAUSED" } else { "▶ PLAYING" };
+    
+    let controls_text = format!(
+        "{}\n\n\
+         Volume: {:.0}%\n\n\
+         Controls:\n\
+         Space: Play/Pause\n\
+         ←/→: Seek backward/forward\n\
+         +/-: Volume up/down\n\
+         Esc: Return to Normal mode\n\
+         q: Quit",
+        state,
+        volume * 100.0
+    );
+    
+    Paragraph::new(controls_text)
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true })
+}
+
 
 fn render_music_content(
     frame: &mut Frame,

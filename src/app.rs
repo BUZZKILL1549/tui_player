@@ -5,6 +5,7 @@ use std::path::PathBuf;
 pub enum AppMode {
     Normal,
     Search,
+    Play
 }
 
 pub struct App {

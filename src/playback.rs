@@ -16,7 +16,10 @@ pub struct AudioPlayer {
     total_duration: Arc<Mutex<Duration>>,
     playback_started: Arc<Mutex<Option<Instant>>>,
     is_playing: Arc<Mutex<bool>>,
+    is_paused: Arc<Mutex<bool>>,
     current_song: Arc<Mutex<Option<String>>>,
+    current_volume: Arc<Mutex<f32>>,
+    current_path: Arc<Mutex<Option<PathBuf>>>,
 }
 
 impl AudioPlayer {
@@ -31,17 +34,22 @@ impl AudioPlayer {
             total_duration: Arc::new(Mutex::new(Duration::from_secs(0))),
             playback_started: Arc::new(Mutex::new(None)),
             is_playing: Arc::new(Mutex::new(false)),
+            is_paused: Arc::new(Mutex::new(false)),
             current_song: Arc::new(Mutex::new(None)),
+            current_volume: Arc::new(Mutex::new(1.0)),
+            current_path: Arc::new(Mutex::new(None)),
         }
     }
     
     pub fn play_song(&mut self, file_path: Option<PathBuf>) {
         self.stop();
         
-        if let Some(path) = file_path {
+        if let Some(path) = file_path.clone() {
             *self.current_position.lock().unwrap() = Duration::from_secs(0);
             *self.is_playing.lock().unwrap() = true;
+            *self.is_paused.lock().unwrap() = false;
             *self.playback_started.lock().unwrap() = Some(Instant::now());
+            *self.current_path.lock().unwrap() = file_path;
             
             if let Some(filename) = path.file_name() {
                 if let Some(name) = filename.to_str() {
@@ -70,6 +78,7 @@ impl AudioPlayer {
             let stream_handle_clone = self.stream_handle.as_ref().unwrap().clone();
             let total_duration_clone = Arc::clone(&self.total_duration);
             let is_playing_clone = Arc::clone(&self.is_playing);
+            let volume_clone = Arc::clone(&self.current_volume);
             
             self.thread_handle = Some(thread::spawn(move || {
                 let new_sink = match Sink::try_new(&stream_handle_clone) {
@@ -80,6 +89,9 @@ impl AudioPlayer {
                         return;
                     }
                 };
+                
+                let volume = *volume_clone.lock().unwrap();
+                new_sink.set_volume(volume);
                 
                 *sink_clone.lock().unwrap() = Some(new_sink);
                 
@@ -148,6 +160,7 @@ impl AudioPlayer {
     pub fn stop(&mut self) {
         *self.should_stop.lock().unwrap() = true;
         *self.is_playing.lock().unwrap() = false;
+        *self.is_paused.lock().unwrap() = false;
         
         if let Some(sink) = &mut *self.sink.lock().unwrap() {
             sink.stop();
@@ -163,8 +176,9 @@ impl AudioPlayer {
     pub fn update_position(&self) {
         let mut position = self.current_position.lock().unwrap();
         let is_playing = *self.is_playing.lock().unwrap();
+        let is_paused = *self.is_paused.lock().unwrap();
         
-        if is_playing {
+        if is_playing && !is_paused {
             let total = *self.total_duration.lock().unwrap();
             
             if let Some(start_time) = *self.playback_started.lock().unwrap() {
@@ -210,6 +224,80 @@ impl AudioPlayer {
     pub fn current_song_name(&self) -> Option<String> {
         self.current_song.lock().unwrap().clone()
     }
+    
+    pub fn toggle_pause(&mut self) {
+        let mut is_paused = self.is_paused.lock().unwrap();
+        
+        if let Some(sink) = &*self.sink.lock().unwrap() {
+            if *is_paused {
+                sink.play();
+                *is_paused = false;
+                
+                // Update playback_started to account for paused time
+                let mut playback_started = self.playback_started.lock().unwrap();
+                let current_position = *self.current_position.lock().unwrap();
+                *playback_started = Some(Instant::now() - current_position);
+            } else {
+                sink.pause();
+                *is_paused = true;
+            }
+        }
+    }
+    
+    pub fn is_paused(&self) -> bool {
+        *self.is_paused.lock().unwrap()
+    }
+    
+    pub fn seek_forward(&mut self, _seconds: f32) {
+        // ill figure this shit out later
+        unimplemented!();
+    }
+    
+    pub fn seek_backward(&mut self, _seconds: f32) {
+        // this too
+        unimplemented!();
+    }
+    
+    pub fn increase_volume(&mut self, amount: f32) {
+        let mut volume = self.current_volume.lock().unwrap();
+        *volume = (*volume + amount).min(1.0);
+        
+        if let Some(sink) = &*self.sink.lock().unwrap() {
+            sink.set_volume(*volume);
+        }
+    }
+    
+    pub fn decrease_volume(&mut self, amount: f32) {
+        let mut volume = self.current_volume.lock().unwrap();
+        *volume = (*volume - amount).max(0.0);
+        
+        if let Some(sink) = &*self.sink.lock().unwrap() {
+            sink.set_volume(*volume);
+        }
+    }
+    
+    pub fn get_volume(&self) -> f32 {
+        *self.current_volume.lock().unwrap()
+    }
+    
+    /*
+    commented to skip compiler warnings
+    pub fn restart(&mut self) {
+        let current_path = self.current_path.lock().unwrap().clone();
+        self.play_song(current_path);
+    }
+    
+    pub fn jump_to_percent(&mut self, percent: f32) {
+        let total = *self.total_duration.lock().unwrap();
+        let target_duration = Duration::from_secs_f32(total.as_secs_f32() * percent.clamp(0.0, 1.0));
+        
+        let mut position = self.current_position.lock().unwrap();
+        *position = target_duration;
+        
+        let mut playback_started = self.playback_started.lock().unwrap();
+        *playback_started = Some(Instant::now() - target_duration);
+    }
+    */
 }
 
 impl Drop for AudioPlayer {
