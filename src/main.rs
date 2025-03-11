@@ -165,7 +165,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
+    EXIT_NOW.store(true, std::sync::atomic::Ordering::SeqCst);
     player.stop();
+
     Ok(())
 }
 

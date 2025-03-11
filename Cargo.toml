@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+cpal = "0.15.3"
 crossterm = "0.28.1"
 lofty = "0.22.2"
 ratatui = "0.29.0"
 rodio = "0.20.1"
+symphonia = "0.5.4"
 walkdir = "2.5.0"
