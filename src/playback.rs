@@ -48,14 +48,19 @@ impl AudioPlayer {
         }
     }
 
-    pub fn play_song(&mut self, file_path: Option<PathBuf>) {
+    pub fn play_song_with_position(
+        &mut self,
+        file_path: Option<PathBuf>,
+        position: Duration,
+        start_paused: bool,
+    ) {
         self.stop();
 
         if let Some(path) = file_path.clone() {
-            *self.current_position.lock().unwrap() = Duration::from_secs(0);
+            *self.current_position.lock().unwrap() = position; // Start at the specified position
             *self.is_playing.lock().unwrap() = true;
-            *self.is_paused.lock().unwrap() = false;
-            *self.playback_started.lock().unwrap() = Some(Instant::now());
+            *self.is_paused.lock().unwrap() = start_paused;
+            *self.playback_started.lock().unwrap() = Some(Instant::now() - position);
             *self.current_path.lock().unwrap() = file_path;
             *self.underruns.lock().unwrap() = 0;
 
@@ -75,6 +80,7 @@ impl AudioPlayer {
             let audio_buffer_clone = Arc::clone(&self.audio_buffer);
             let is_paused_clone = Arc::clone(&self.is_paused);
             let underruns_clone = Arc::clone(&self.underruns);
+            let seek_time = position.as_secs_f64();
 
             self.thread_handle = Some(thread::spawn(move || {
                 let file = match File::open(&path_clone) {
@@ -141,6 +147,40 @@ impl AudioPlayer {
                 }
 
                 let track_id = track.id;
+
+                if seek_time > 0.0 {
+                    let sample_rate = track.codec_params.sample_rate.unwrap_or(44100);
+                    let _channels = track
+                        .codec_params
+                        .channels
+                        .unwrap_or(symphonia::core::audio::Channels::FRONT_LEFT)
+                        .count();
+
+                    let frames_to_skip = (seek_time * sample_rate as f64) as usize;
+                    println!("Attempting to skip approximately {} frames", frames_to_skip);
+
+                    let mut frames_skipped = 0;
+                    while frames_skipped < frames_to_skip {
+                        match format.next_packet() {
+                            Ok(packet) => {
+                                if packet.track_id() != track_id {
+                                    continue;
+                                }
+
+                                if let Ok(audio_buf) = decoder.decode(&packet) {
+                                    frames_skipped += audio_buf.frames();
+                                    println!(
+                                        "Skipped {} frames, total: {}/{}",
+                                        audio_buf.frames(),
+                                        frames_skipped,
+                                        frames_to_skip
+                                    );
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                }
 
                 let host = cpal::default_host();
                 let device = match host.default_output_device() {
@@ -239,8 +279,6 @@ impl AudioPlayer {
                     return;
                 }
 
-                // buffer kinda important here cuz otherwise the music be choppy af. 2 secs prolly
-                // good enuf
                 let max_buffer_size = spec.rate as usize * spec.channels.count() * 2; // 2 sec
                 let mut last_packet_decoded = false;
 
@@ -341,6 +379,10 @@ impl AudioPlayer {
         self._stream = None;
     }
 
+    pub fn play_song(&mut self, file_path: Option<PathBuf>) {
+        self.play_song_with_position(file_path, Duration::from_secs(0), false);
+    }
+
     pub fn update_position(&self) {
         let mut position = self.current_position.lock().unwrap();
         let is_playing = *self.is_playing.lock().unwrap();
@@ -415,12 +457,123 @@ impl AudioPlayer {
         *self.is_paused.lock().unwrap()
     }
 
-    pub fn seek_forward(&mut self, _seconds: f32) {
-        unimplemented!();
+    pub fn seek_forward(&mut self, seconds: f32) {
+        if !self.is_playing() {
+            return;
+        }
+
+        self.update_position();
+
+        let current_position;
+        let total_duration;
+        let current_path;
+        let was_paused;
+
+        {
+            current_position = *self.current_position.lock().unwrap();
+            total_duration = *self.total_duration.lock().unwrap();
+            current_path = self.current_path.lock().unwrap().clone();
+            was_paused = self.is_paused();
+        }
+
+        if current_path.is_none() {
+            return;
+        }
+
+        let target_position =
+            (current_position + Duration::from_secs_f32(seconds)).min(total_duration);
+
+        println!(
+            "Seeking forward from {:?} to {:?}",
+            current_position, target_position
+        );
+
+        {
+            let mut should_stop = self.should_stop.lock().unwrap();
+            *should_stop = true;
+        }
+
+        thread::sleep(Duration::from_millis(50));
+
+        {
+            let mut buffer = self.audio_buffer.lock().unwrap();
+            buffer.clear();
+        }
+
+        let thread_handle = self.thread_handle.take();
+        if let Some(handle) = thread_handle {
+            std::mem::forget(handle);
+        }
+
+        {
+            let mut is_playing = self.is_playing.lock().unwrap();
+            *is_playing = false;
+        }
+
+        thread::sleep(Duration::from_millis(100));
+
+        let path = current_path.unwrap();
+        self.play_song_with_position(Some(path), target_position, was_paused);
     }
 
-    pub fn seek_backward(&mut self, _seconds: f32) {
-        unimplemented!();
+    pub fn seek_backward(&mut self, seconds: f32) {
+        if !self.is_playing() {
+            return;
+        }
+
+        self.update_position();
+
+        let current_position;
+        let current_path;
+        let was_paused;
+
+        {
+            current_position = *self.current_position.lock().unwrap();
+            current_path = self.current_path.lock().unwrap().clone();
+            was_paused = self.is_paused();
+        }
+
+        if current_path.is_none() {
+            return;
+        }
+
+        let target_position = if current_position > Duration::from_secs_f32(seconds) {
+            current_position - Duration::from_secs_f32(seconds)
+        } else {
+            Duration::from_secs(0)
+        };
+
+        println!(
+            "Seeking backward from {:?} to {:?}",
+            current_position, target_position
+        );
+
+        {
+            let mut should_stop = self.should_stop.lock().unwrap();
+            *should_stop = true;
+        }
+
+        thread::sleep(Duration::from_millis(50));
+
+        {
+            let mut buffer = self.audio_buffer.lock().unwrap();
+            buffer.clear();
+        }
+
+        let thread_handle = self.thread_handle.take();
+        if let Some(handle) = thread_handle {
+            std::mem::forget(handle);
+        }
+
+        {
+            let mut is_playing = self.is_playing.lock().unwrap();
+            *is_playing = false;
+        }
+
+        thread::sleep(Duration::from_millis(100));
+
+        let path = current_path.unwrap();
+        self.play_song_with_position(Some(path), target_position, was_paused);
     }
 
     pub fn increase_volume(&mut self, amount: f32) {
