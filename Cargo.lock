@@ -1233,7 +1233,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tui"
+name = "tui_player"
 version = "0.1.0"
 dependencies = [
  "cpal",
